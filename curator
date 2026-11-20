@@ -41,3 +41,331 @@
         )
 if __name__ == "__main__":
     main()
+    trash_dir = folder / TRASH_FOLDER_NAME
+    candidate_photos: List[Dict[str, Any]] = []
+    pattern = "**/*" if recursive else "*"
+    for item in folder.glob(pattern):
+        # Must be a file
+        if not item.is_file():
+            continue
+        # Skip if inside To_Review_Trash
+        try:
+            if trash_dir.resolve() in item.resolve().parents or item.parent.resolve() == trash_dir.resolve():
+                continue
+        except Exception:
+            pass
+        # Skip hidden files and directories (relative to scanned folder)
+        try:
+            rel = item.relative_to(folder)
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+        except Exception:
+            if item.name.startswith("."):
+                continue
+        # Check extension
+        if item.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        try:
+            file_hash = calculate_file_hash(item)
+            if file_hash in processed_hashes:
+                # Already processed
+                continue
+            stat = item.stat()
+            candidate_photos.append({
+                "path": item,
+                "filename": item.name,
+                "relative_path": str(item.relative_to(folder)),
+                "size_bytes": stat.st_size,
+                "mtime": stat.st_mtime,
+                "hash": file_hash
+            })
+        except (PermissionError, OSError) as e:
+            print(f"[Perception Warning] Could not access file {item.name}: {e}")
+    return candidate_photos
+
+    
+    
+              if response.status_code != 200:
+                raise RuntimeError(
+                    f"Gemini API returned error {response.status_code}: {response.text}"
+                )
+            data = response.json()
+        try:
+            candidate_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            cleaned = clean_json_text(candidate_text)
+            parsed = json.loads(cleaned)
+            # Normalize values
+            parsed["sharpness"] = max(1, min(10, int(parsed.get("sharpness", 5))))
+            parsed["lighting"] = max(1, min(10, int(parsed.get("lighting", 5))))
+            parsed["value"] = max(1, min(10, int(parsed.get("value", 5))))
+            
+            category = str(parsed.get("category", "")).strip().capitalize()
+            parsed["category"] = "Trash" if category == "Trash" else "Keep"
+            
+            if "description" not in parsed:
+                parsed["description"] = f"Image {filepath.name}"
+            if "reason" not in parsed:
+                parsed["reason"] = f"Categorized as {parsed['category']}"
+            return parsed
+        except (KeyError, json.JSONDecodeError, ValueError) as err:
+            raise ValueError(f"Failed to parse vision model response: {err}\nRaw text: {data}")
+    def analyze_batch(
+        self,
+        photos: List[Dict[str, Any]],
+        memory_context: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Analyzes a batch of photos sequentially with error isolation."""
+        results = []
+        for photo in photos:
+            try:
+                res = self.analyze_photo(photo["path"], memory_context=memory_context)
+                results.append({"photo": photo, "result": res, "success": True})
+            except Exception as e:
+                print(f"[Brain Error] Failed to analyze {photo['filename']}: {e}")
+                results.append({"photo": photo, "error": str(e), "success": False})
+        return results
+
+    
+    
+                  }
+            except Exception as e:
+                return {
+                    "action": "move_failed",
+                    "source": str(source_path),
+                    "error": str(e),
+                    "curation": curation_result,
+                    "success": False
+                }
+        else:
+            # File is kept in place
+            self.memory_manager.record_curated_photo(
+                photo_data=photo_info,
+                result=curation_result,
+                status="kept"
+            )
+            return {
+                "action": "kept_in_place",
+                "source": str(source_path),
+                "curation": curation_result,
+                "success": True
+            }
+    def restore_photo(self, file_hash: str, photos_root: Path) -> Dict[str, Any]:
+        """
+        Utility to manually or programmatically restore a photo from trash back to photos root.
+        """
+        state = self.memory_manager._load_json(self.memory_manager.state_file)
+        trash_entry = state.get("trash_registry", {}).get(file_hash)
+        if not trash_entry:
+            return {"success": False, "error": "Photo not found in trash registry"}
+        trash_path = Path(trash_entry["trash_path"])
+        if not trash_path.exists():
+            return {"success": False, "error": "File no longer in To_Review_Trash"}
+        dest_path = get_unique_destination_path(Path(photos_root), trash_entry["filename"])
+        shutil.move(str(trash_path), str(dest_path))
+        
+        # Trigger restoration memory sync
+        self.memory_manager.sync_user_restorations(photos_dir=photos_root)
+        return {
+            "success": True,
+            "filename": trash_entry["filename"],
+            "restored_to": str(dest_path)
+        }
+
+    
+    
+                  }
+            except Exception as e:
+                return {
+                    "action": "move_failed",
+                    "source": str(source_path),
+                    "error": str(e),
+                    "curation": curation_result,
+                    "success": False
+                }
+        else:
+            # File is kept in place
+            self.memory_manager.record_curated_photo(
+                photo_data=photo_info,
+                result=curation_result,
+                status="kept"
+            )
+            return {
+                "action": "kept_in_place",
+                "source": str(source_path),
+                "curation": curation_result,
+                "success": True
+            }
+    def restore_photo(self, file_hash: str, photos_root: Path) -> Dict[str, Any]:
+        """
+        Utility to manually or programmatically restore a photo from trash back to photos root.
+        """
+        state = self.memory_manager._load_json(self.memory_manager.state_file)
+        trash_entry = state.get("trash_registry", {}).get(file_hash)
+        if not trash_entry:
+            return {"success": False, "error": "Photo not found in trash registry"}
+        trash_path = Path(trash_entry["trash_path"])
+        if not trash_path.exists():
+            return {"success": False, "error": "File no longer in To_Review_Trash"}
+        dest_path = get_unique_destination_path(Path(photos_root), trash_entry["filename"])
+        shutil.move(str(trash_path), str(dest_path))
+        
+        # Trigger restoration memory sync
+        self.memory_manager.sync_user_restorations(photos_dir=photos_root)
+        return {
+            "success": True,
+            "filename": trash_entry["filename"],
+            "restored_to": str(dest_path)
+        }
+
+    
+    
+                  }
+            except Exception as e:
+                return {
+                    "action": "move_failed",
+                    "source": str(source_path),
+                    "error": str(e),
+                    "curation": curation_result,
+                    "success": False
+                }
+        else:
+            # File is kept in place
+            self.memory_manager.record_curated_photo(
+                photo_data=photo_info,
+                result=curation_result,
+                status="kept"
+            )
+            return {
+                "action": "kept_in_place",
+                "source": str(source_path),
+                "curation": curation_result,
+                "success": True
+            }
+    def restore_photo(self, file_hash: str, photos_root: Path) -> Dict[str, Any]:
+        """
+        Utility to manually or programmatically restore a photo from trash back to photos root.
+        """
+        state = self.memory_manager._load_json(self.memory_manager.state_file)
+        trash_entry = state.get("trash_registry", {}).get(file_hash)
+        if not trash_entry:
+            return {"success": False, "error": "Photo not found in trash registry"}
+        trash_path = Path(trash_entry["trash_path"])
+        if not trash_path.exists():
+            return {"success": False, "error": "File no longer in To_Review_Trash"}
+        dest_path = get_unique_destination_path(Path(photos_root), trash_entry["filename"])
+        shutil.move(str(trash_path), str(dest_path))
+        
+        # Trigger restoration memory sync
+        self.memory_manager.sync_user_restorations(photos_dir=photos_root)
+        return {
+            "success": True,
+            "filename": trash_entry["filename"],
+            "restored_to": str(dest_path)
+        }
+
+    
+    
+              self._save_json(self.memory_file, memory)
+        return rescued_events
+    def get_memory_context_for_prompt(self) -> str:
+        """
+        Formats all learned user preferences from rescued photos
+        into a concise few-shot memory context to inject into the vision model prompt.
+        """
+        memory = self._load_json(self.memory_file)
+        rescued = memory.get("rescued_memories", [])
+        if not rescued:
+            return ""
+        context_lines = [
+            "\n### USER'S PERSONAL TASTE & MEMORY (Learned from photos the user rescued from To_Review_Trash):",
+            "The user previously retrieved the following photos from the trash because they value them. DO NOT mark photos with similar subjects or context as Trash:"
+        ]
+        # Use recent rescues (up to 10) to keep prompt focused
+        for idx, entry in enumerate(rescued[-10:], 1):
+            desc = entry.get("description", "No description")
+            insight = entry.get("learned_insight", "")
+            context_lines.append(f"{idx}. {desc} -> {insight}")
+        context_lines.append(
+            "Adapt your 'value' score and 'Keep'/'Trash' categorization to honor these user preferences.\n"
+        )
+        return "\n".join(context_lines)
+    def get_stats(self) -> Dict[str, Any]:
+        state = self._load_json(self.state_file)
+        memory = self._load_json(self.memory_file)
+        processed = state.get("processed_photos", {})
+        trash = state.get("trash_registry", {})
+        rescued = memory.get("rescued_memories", [])
+        kept_count = sum(1 for p in processed.values() if p.get("status") == "kept")
+        in_trash_count = sum(1 for p in trash.values() if p.get("status") == "in_trash")
+        rescued_count = len(rescued)
+        return {
+            "total_processed": len(processed),
+            "kept": kept_count,
+            "in_trash": in_trash_count,
+            "rescued_by_user": rescued_count,
+            "recent_rescues": rescued[-5:]
+        }
+
+    
+    
+      print(f"\n📂 Current contents of '{TRASH_FOLDER_NAME}':")
+    for f in trash_dir.glob("*"):
+        print(f"   - {f.name}")
+    # 3. Simulate User Feedback (Step 4: Memory)
+    print("\n--- STEP 3: SIMULATING USER RESCUING A PHOTO FROM TRASH ---")
+    rescued_photo_name = "grainy_concert_memory.jpg"
+    rescued_source = trash_dir / rescued_photo_name
+    rescued_dest = DEMO_DIR / rescued_photo_name
+    print(f"👤 User manually drags '{rescued_photo_name}' out of '{TRASH_FOLDER_NAME}' back to Photos!")
+    shutil.move(str(rescued_source), str(rescued_dest))
+    # 4. Agent syncs restorations and learns!
+    print("\n--- STEP 4: AGENT LEARNS USER'S PERSONAL TASTE ---")
+    rescued_events = demo_memory_manager.sync_user_restorations(photos_dir=DEMO_DIR)
+    print(f"Agent detected {len(rescued_events)} rescued file(s)!")
+    for ev in rescued_events:
+        print(f"📝 Logged to Memory: '{ev['filename']}'")
+        print(f"   Description: {ev['description']}")
+        print(f"   Learned Insight: {ev['learned_insight']}")
+    # 5. Verify Memory Context Injection
+    print("\n--- STEP 5: PROMPT MEMORY INJECTION VERIFICATION ---")
+    memory_context = demo_memory_manager.get_memory_context_for_prompt()
+    print("Vision System Prompt now automatically includes:")
+    print("-" * 50)
+    print(memory_context.strip())
+    print("-" * 50)
+    # 6. Re-evaluating a similar concert photo with learned memory
+    print("\n--- STEP 6: VERIFYING FUTURE REASONING WITH MEMORY ---")
+    second_concert_photo = DEMO_DIR / "another_grainy_concert.jpg"
+    shutil.copy(str(rescued_dest), str(second_concert_photo))
+    adapted_analysis = mock_brain.analyze_photo(second_concert_photo, memory_context=memory_context)
+    print(f"Analyzing new photo '{second_concert_photo.name}' with learned memory:")
+    print(f"Category:    [{adapted_analysis['category']}]")
+    print(f"Value Score: {adapted_analysis['value']}/10")
+    print(f"Reason:      {adapted_analysis['reason']}")
+    assert adapted_analysis["category"] == "Keep", "Expected memory to protect concert photo from being trashed!"
+    print("\n🎉 ALL 4 ARCHITECTURE STEPS FULLY TESTED AND VERIFIED SUCCESSFULLY!")
+if __name__ == "__main__":
+    run_full_demo()
+
+    
+    
+  Gemini API Key (get one from Google AI Studio: https://aistudio.google.com/)
+GEMINI_API_KEY=your_gemini_api_key_here
+# Vision Model to use (default: gemini-2.5-flash or gemini-1.5-flash)
+VISION_MODEL=gemini-2.5-flash
+# Default photo folder to scan (e.g. iCloud, Google Drive, or local folder)
+# Example for Windows: C:/Users/YourName/Pictures
+# Example for Google Drive: G:/My Drive/Google Photos
+PHOTOS_DIR=sample_photos
+# Number of photos to process per batch
+BATCH_SIZE=5
+Gemini API Key (get one from Google AI Studio: https://aistudio.google.com/)
+GEMINI_API_KEY=your_gemini_api_key_here
+# Vision Model to use (default: gemini-2.5-flash or gemini-1.5-flash)
+VISION_MODEL=gemini-2.5-flash
+# Default photo folder to scan (e.g. iCloud, Google Drive, or local folder)
+# Example for Windows: C:/Users/YourName/Pictures
+# Example for Google Drive: G:/My Drive/Google Photos
+PHOTOS_DIR=sample_photos
+# Number of photos to process per batch
+BATCH_SIZE=5
