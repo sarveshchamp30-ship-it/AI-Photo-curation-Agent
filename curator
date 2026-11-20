@@ -1,0 +1,43 @@
+    sync_parser.add_argument(
+        "--folder",
+        type=str,
+        default=DEFAULT_PHOTOS_DIR,
+        help="Path to photo directory"
+    )
+    # Command: status
+    subparsers.add_parser("status", help="Show current stats and learned preferences.")
+    # Command: demo
+    subparsers.add_parser("demo", help="Run self-contained end-to-end verification demo with simulated photos.")
+    args = parser.parse_args()
+    command = args.command or "run"
+    if command == "status":
+        mm = MemoryManager()
+        print_summary(mm)
+    elif command == "sync-memory":
+        folder = Path(args.folder).resolve()
+        mm = MemoryManager()
+        events = mm.sync_user_restorations(photos_dir=folder)
+        if events:
+            print(f"✨ Successfully synced {len(events)} user restoration(s) into memory!")
+            for e in events:
+                print(f"   • {e['filename']}: {e['learned_insight']}")
+        else:
+            print("No new restorations detected in To_Review_Trash.")
+        print_summary(mm)
+    elif command == "demo":
+        from demo import run_full_demo
+        run_full_demo()
+    elif command == "run":
+        folder = Path(args.folder).resolve()
+        if not folder.exists():
+            folder.mkdir(parents=True, exist_ok=True)
+            print(f"Created photo folder: {folder}")
+        run_curator(
+            photos_dir=folder,
+            api_key=args.api_key,
+            model=args.model,
+            batch_size=args.batch_size,
+            recursive=args.recursive
+        )
+if __name__ == "__main__":
+    main()
